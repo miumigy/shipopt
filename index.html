@@ -1,693 +1,691 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>ShipOpt</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/highs@1.8.0/build/highs.js"></script>
-
-    <style>
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
-            background-color: #f1f5f9; 
-            overscroll-behavior: none;
-            user-select: none;
-            -webkit-tap-highlight-color: transparent;
-        }
-        .h-dvh { height: 100vh; height: 100dvh; }
-        
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        
-        .fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
-        .fade-enter-from, .fade-leave-to { opacity: 0; }
-        .slide-up-enter-active, .slide-up-leave-active { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        .slide-up-enter-from, .slide-up-leave-to { transform: translateY(100%); }
-        
-        input[type=range] { -webkit-appearance: none; background: transparent; }
-        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #4f46e5; margin-top: -6px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); cursor: pointer; }
-        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #cbd5e1; border-radius: 2px; }
-        
-        .tab-indicator { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-
-        .custom-checkbox { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #cbd5e1; appearance: none; cursor: pointer; position: relative; transition: all 0.2s; }
-        .custom-checkbox:checked { background-color: #4f46e5; border-color: #4f46e5; }
-        .custom-checkbox:checked::after { content: '\f00c'; font-family: 'Font Awesome 6 Free'; font-weight: 900; color: white; font-size: 10px; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
-
-        @media (min-width: 768px) {
-            .custom-checkbox { width: 20px; height: 20px; }
-            .custom-checkbox:checked::after { font-size: 12px; }
-        }
-
-        @media (max-height: 500px) and (orientation: landscape) {
-            .landscape-tight-py { padding-top: 4px !important; padding-bottom: 4px !important; }
-            .landscape-compact-text { font-size: 0.75rem !important; }
-            .landscape-header-px { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
-        }
-
-        [v-cloak] { display: none; }
-    </style>
-</head>
-<body class="text-slate-800 h-dvh w-screen overflow-hidden bg-slate-50">
-
-<div id="app" v-cloak class="flex flex-col h-full w-full">
-
-    <header class="bg-white text-slate-800 z-30 shadow-sm shrink-0 relative flex flex-col w-full">
-        <div class="px-4 py-2 md:py-3 landscape-tight-py landscape-header-px flex justify-between items-center border-b border-slate-100 z-30 relative bg-white w-full">
-            <div class="flex items-center gap-2 md:gap-3 min-w-0">
-                <div class="bg-blue-500 text-white w-8 h-8 md:w-10 md:h-10 rounded flex items-center justify-center shadow-md flex-shrink-0">
-                    <i class="fa-solid fa-ship md:text-lg"></i>
-                </div>
-                <div class="min-w-0">
-                    <h1 class="font-bold text-sm md:text-xl leading-none tracking-tight text-slate-800 truncate">ShipOpt</h1>
-                    <span v-if="!isSolverReady" class="text-[10px] md:text-xs text-orange-500 flex items-center gap-1 truncate"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading...</span>
-                    <span v-else class="text-[10px] md:text-xs text-green-600 flex items-center gap-1 font-bold truncate"><i class="fa-solid fa-check"></i> System Ready</span>
-                </div>
-            </div>
-            
-            <div class="flex items-center gap-3 md:gap-6 flex-shrink-0 ml-2">
-                <div class="text-right">
-                    <div class="text-[9px] md:text-xs text-slate-400 font-medium leading-none mb-1">コスト(輸送+損失)</div>
-                    <div class="font-mono font-bold text-sm sm:text-base md:text-2xl leading-none text-slate-700">
-                        ¥{{ formatCompact(totalShippingCost + totalLoss) }}
-                    </div>
-                </div>
-                <div class="h-6 md:h-8 w-px bg-slate-200"></div>
-                <div class="text-right">
-                    <div class="text-[9px] md:text-xs text-slate-400 font-medium leading-none mb-1">営業利益</div>
-                    <div class="font-mono font-bold text-sm sm:text-base md:text-2xl leading-none" :class="economicValue >= 0 ? 'text-emerald-600' : 'text-red-500'">
-                        ¥{{ formatCompact(economicValue) }}
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="px-4 py-2 md:py-3 landscape-tight-py landscape-header-px bg-slate-50/80 border-b border-slate-200 backdrop-blur-sm relative z-20 w-full">
-            <div class="flex gap-2 md:gap-4 w-full">
-                <div class="flex-1 flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm h-9 md:h-11 items-center min-w-0">
-                    <button @click="currentMode='strict'" 
-                            class="flex-1 h-full rounded text-[10px] sm:text-[11px] md:text-sm font-bold transition-all flex items-center justify-center gap-1.5 hover:bg-slate-50 min-w-0 px-1"
-                            :class="currentMode==='strict' ? 'bg-orange-500 text-white shadow hover:!bg-orange-600' : 'text-slate-500'">
-                        <i class="fa-solid fa-stopwatch flex-shrink-0"></i> <span class="truncate">納期厳守</span>
-                    </button>
-                    <button @click="currentMode='profit'" 
-                            class="flex-1 h-full rounded text-[10px] sm:text-[11px] md:text-sm font-bold transition-all flex items-center justify-center gap-1 leading-none hover:bg-slate-50 min-w-0 px-1"
-                            :class="currentMode==='profit' ? 'bg-emerald-600 text-white shadow hover:!bg-emerald-500' : 'text-slate-500'">
-                        <i class="fa-solid fa-sack-dollar flex-shrink-0"></i> 
-                        <span class="truncate">利益最大(遅延≦{{ settings.allowedDelay }}日)</span>
-                    </button>
-                </div>
-                <button @click="showSettings = true" 
-                        class="w-9 h-9 bg-white text-slate-500 rounded-lg border border-slate-200 shadow-sm flex items-center justify-center hover:bg-slate-50 hover:text-indigo-600 transition active:scale-95 flex-shrink-0">
-                    <i class="fa-solid fa-gear md:text-lg"></i>
-                </button>
-            </div>
-        </div>
-
-        <div class="flex bg-white relative items-center pr-2 md:pr-4 border-b border-slate-200 z-10 shrink-0 w-full landscape-header-px">
-            <div class="flex-1 flex relative min-w-0">
-                <button @click="currentView='orders'" class="flex-1 py-3 md:py-4 landscape-tight-py text-xs md:text-sm font-bold flex items-center justify-center gap-1 sm:gap-2 transition-colors relative z-10 min-w-0 px-1"
-                        :class="currentView==='orders' ? 'text-indigo-600' : 'text-slate-400 hover:bg-slate-50'">
-                    <i class="fa-solid fa-clipboard-list flex-shrink-0 md:text-base"></i> 
-                    <span class="truncate">オーダー一覧</span>
-                    <span v-if="unassignedOrders.length > 0" class="bg-red-500 text-white text-[9px] md:text-xs px-1.5 py-0.5 rounded-full min-w-[18px] text-center ml-0.5 flex-shrink-0">
-                        {{ unassignedOrders.length }}
-                    </span>
-                </button>
-                <button @click="currentView='ships'" class="flex-1 py-3 md:py-4 landscape-tight-py text-xs md:text-sm font-bold flex items-center justify-center gap-1 sm:gap-2 transition-colors relative z-10 min-w-0 px-1"
-                        :class="currentView==='ships' ? 'text-indigo-600' : 'text-slate-400 hover:bg-slate-50'">
-                    <i class="fa-solid fa-ship flex-shrink-0 md:text-base"></i> 
-                    <span class="truncate">船積指示</span>
-                    <span class="bg-slate-100 text-slate-500 text-[9px] md:text-xs px-1.5 py-0.5 rounded-full ml-0.5 border border-slate-200 flex-shrink-0">{{ shipments.length }}便</span>
-                </button>
-                <div class="absolute bottom-0 h-0.5 md:h-1 bg-indigo-600 tab-indicator z-20 w-1/2"
-                     :style="{ transform: currentView === 'orders' ? 'translateX(0%)' : 'translateX(100%)' }">
-                </div>
-            </div>
-
-            <div class="pl-2 md:pl-4 border-l border-slate-100 py-1 flex-shrink-0">
-                <button @click="runOptimization" :disabled="!isSolverReady || isSolving"
-                        class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 sm:px-4 md:px-6 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-bold shadow-sm shadow-indigo-200 flex items-center justify-center gap-1 md:gap-2 disabled:opacity-50 transition active:scale-[0.97] whitespace-nowrap h-8 md:h-10">
-                    <span v-if="isSolving"><i class="fa-solid fa-circle-notch fa-spin"></i></span>
-                    <span v-else><i class="fa-solid fa-wand-magic-sparkles"></i> 最適化</span>
-                </button>
-            </div>
-        </div>
-    </header>
-
-    <div class="flex-1 overflow-hidden relative w-full bg-slate-100">
-        <div v-show="currentView === 'orders'" class="h-full flex flex-col w-full">
-            <div v-if="unassignedOrders.length === 0" class="flex-1 flex flex-col items-center justify-center text-slate-400">
-                <div class="bg-white p-6 md:p-10 rounded-full shadow-sm mb-4"><i class="fa-solid fa-check text-5xl md:text-7xl text-emerald-400"></i></div>
-                <span class="text-sm md:text-xl font-bold text-slate-500">全ての割当が完了しました</span>
-            </div>
-
-            <div v-else class="flex-1 overflow-y-auto p-2 md:p-4 pb-20 w-full landscape-header-px">
-                <div class="flex justify-between items-center px-2 mb-2">
-                    <div class="flex items-center gap-2">
-                        <input type="checkbox" :checked="isAllSelected" @change="toggleAll" class="custom-checkbox">
-                        <span class="text-xs md:text-sm font-bold text-slate-500">未割当リスト ({{ unassignedOrders.length }})</span>
-                    </div>
-                    <button v-if="selectedIds.length > 0" @click="selectedIds = []" class="text-[10px] md:text-xs text-slate-400 underline hover:text-slate-600 font-bold">全解除</button>
-                </div>
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4">
-                    <div v-for="order in unassignedOrders" :key="order.id" 
-                         class="bg-white rounded-lg shadow-sm border border-slate-200 p-2 md:p-3 flex items-center hover:bg-slate-50 transition group cursor-pointer"
-                         :class="selectedIds.includes(order.id) ? 'bg-indigo-50/50 border-indigo-200' : ''"
-                         @click="toggleSelection(order.id)">
-                        
-                        <div class="mr-3 flex-shrink-0" @click.stop>
-                            <input type="checkbox" :value="order.id" v-model="selectedIds" class="custom-checkbox">
-                        </div>
-
-                        <div class="flex-1 min-w-0 mr-2 grid grid-cols-12 gap-2 items-center">
-                            <div class="col-span-4 min-w-0">
-                                <div class="font-bold text-xs md:text-sm text-slate-800 truncate">{{ order.product }}</div>
-                                <div class="text-[9px] md:text-xs text-slate-400 font-mono">{{ order.id }}</div>
-                            </div>
-                            <div class="col-span-4 text-center min-w-0">
-                                <div class="text-[10px] md:text-sm font-bold text-slate-600 truncate">¥{{ formatCompact(order.value) }} <span class="text-[6px] md:text-[8px] font-normal text-slate-400">粗利</span></div>
-                                <div class="text-[9px] md:text-xs text-slate-400 font-mono flex justify-center gap-1.5 truncate">
-                                    <span><i class="fa-solid fa-box text-slate-300"></i> {{ formatCbm(order.cbm) }}m³</span>
-                                    <span><i class="fa-solid fa-weight-hanging text-slate-300"></i> {{ formatWeight(order.weight) }}</span>
-                                </div>
-                            </div>
-                            <div class="col-span-4 text-right min-w-0">
-                                <div class="text-[10px] md:text-sm font-bold truncate" :class="isLate(order, null) ? 'text-red-500' : 'text-slate-600'">
-                                    <i class="fa-regular fa-clock mr-0.5"></i>{{ formatDate(order.deadline) }}
-                                </div>
-                            </div>
-                        </div>
-
-                        <button @click.stop="openAssignModal(order)" class="w-7 h-7 md:w-9 md:h-9 rounded-full bg-slate-100 text-slate-400 hover:bg-indigo-100 hover:text-indigo-600 flex items-center justify-center transition ml-1 flex-shrink-0">
-                            <i class="fa-solid fa-chevron-right text-xs md:text-sm"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <transition name="slide-up">
-                <div v-if="selectedIds.length > 0" class="absolute bottom-4 left-4 right-4 md:left-1/3 md:right-1/3 bg-slate-800 text-white p-3 md:p-4 rounded-xl shadow-xl flex justify-between items-center z-40">
-                    <div class="flex items-center gap-3">
-                        <div class="bg-indigo-500 w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center font-bold text-sm md:text-base">{{ selectedIds.length }}</div>
-                        <div class="text-xs md:text-sm">
-                            <div class="font-bold">アイテムを選択中</div>
-                            <div class="text-slate-400 text-[10px] md:text-xs">一括割当を実行します</div>
-                        </div>
-                    </div>
-                    <button @click="openBatchModal" class="bg-white text-slate-800 px-4 py-2 md:px-6 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-indigo-50 transition active:scale-95">
-                        まとめて割当 <i class="fa-solid fa-arrow-right ml-1"></i>
-                    </button>
-                </div>
-            </transition>
-        </div>
-
-        <div v-show="currentView === 'ships'" class="h-full overflow-y-auto p-3 md:p-5 w-full">
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-20 landscape-header-px">
-                <div v-for="ship in shipments" :key="ship.id" class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col hover:shadow-md transition">
-                    <div class="bg-slate-800 text-white p-3 md:p-4 flex justify-between items-center sticky top-0 z-10 shrink-0">
-                        <div class="min-w-0">
-                            <div class="font-bold text-sm md:text-base flex items-center gap-2 truncate">
-                                {{ ship.name }} 
-                                <span class="text-[9px] md:text-[10px] border px-1.5 py-0.5 rounded flex-shrink-0 text-white border-none" 
-                                      :class="{
-                                          'bg-orange-500': ship.id==='S1', 
-                                          'bg-blue-500': ship.id==='S2', 
-                                          'bg-emerald-500': ship.id==='S3'
-                                      }">
-                                    {{ ship.type }}
-                                </span>
-                            </div>
-                            <div class="text-xs md:text-sm text-sky-200 mt-1 font-bold flex items-center gap-1">
-                                <i class="fa-solid fa-calendar-check"></i> ETA: {{ formatDate(ship.eta) }}
-                            </div>
-                        </div>
-                        <div class="text-right flex-shrink-0 ml-2">
-                            <div class="text-lg md:text-xl font-bold text-white">{{ ship.containers.length }} <span class="text-[10px] md:text-xs font-normal opacity-70">本</span></div>
-                            <div class="text-[10px] md:text-xs text-slate-400">¥{{ formatCompact(ship.baseCost) }}/本</div>
-                        </div>
-                    </div>
-
-                    <div class="p-2 md:p-3 bg-slate-100 min-h-[80px]">
-                        <div v-if="ship.containers.length === 0" class="flex flex-col items-center justify-center h-24 text-slate-400 text-xs md:text-sm italic border-2 border-dashed border-slate-200 rounded-lg bg-slate-50">
-                            <span>積載なし</span>
-                        </div>
-                        <div v-else class="space-y-3">
-                            <div v-for="(cont, cIdx) in ship.containers" :key="cIdx" class="bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden">
-                                <div class="px-3 py-2 md:py-3 border-b border-slate-100 bg-slate-50 flex flex-col gap-1.5">
-                                    <div class="flex justify-between items-center">
-                                        <span class="text-[10px] md:text-sm font-bold text-slate-600 flex items-center gap-1">
-                                            <i class="fa-solid fa-layer-group text-blue-400"></i> Container #{{ cIdx+1 }}
-                                            <span class="bg-blue-100 text-blue-600 px-1.5 rounded text-[9px] md:text-[10px] font-mono border border-blue-200">40'HC</span>
-                                        </span>
-                                        <span class="text-[10px] md:text-xs text-slate-400 font-mono">Cost: ¥{{ formatCompact(cont.cost) }}</span>
-                                    </div>
-                                    <div class="flex gap-2 text-[9px] md:text-xs">
-                                        <div class="flex-1">
-                                            <div class="flex justify-between mb-0.5 text-slate-500">
-                                                <span>Vol</span>
-                                                <span class="font-bold">{{ formatCbm(cont.loadCbm) }}/{{ cont.maxCbm }}m³ <span class="text-slate-400 font-normal">({{ Math.round(cont.loadCbm/cont.maxCbm*100) }}%)</span></span>
-                                            </div>
-                                            <div class="h-1.5 md:h-2 bg-slate-200 rounded-full overflow-hidden">
-                                                <div class="h-full bg-blue-500 rounded-full" :style="{width: Math.min(100, cont.loadCbm/cont.maxCbm*100)+'%'}"></div>
-                                            </div>
-                                        </div>
-                                        <div class="flex-1">
-                                            <div class="flex justify-between mb-0.5 text-slate-500">
-                                                <span>Wgt</span>
-                                                <span class="font-bold">{{ formatWeight(cont.loadWeight) }}/{{ formatWeight(cont.maxWeight) }} <span class="text-slate-400 font-normal">({{ Math.round(cont.loadWeight/cont.maxWeight*100) }}%)</span></span>
-                                            </div>
-                                            <div class="h-1.5 md:h-2 bg-slate-200 rounded-full overflow-hidden">
-                                                <div class="h-full bg-orange-500 rounded-full" :style="{width: Math.min(100, cont.loadWeight/cont.maxWeight*100)+'%'}"></div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="divide-y divide-slate-100 bg-white">
-                                    <div v-for="item in cont.orders" :key="item.id" 
-                                         class="p-2 md:p-3 hover:bg-slate-50 transition-colors relative group">
-                                        <div class="flex justify-between items-start pr-8">
-                                            <div class="min-w-0 flex-1">
-                                                <div class="flex items-center gap-2 mb-0.5">
-                                                    <span class="font-bold text-xs md:text-sm text-slate-700 truncate max-w-[60%]">{{ item.product }}</span>
-                                                    <span class="text-[9px] md:text-xs bg-slate-100 px-1 rounded text-slate-400 font-mono">{{ item.id }}</span>
-                                                </div>
-                                                <div class="text-[9px] md:text-xs text-slate-500 mt-0.5 flex gap-2 font-mono items-center">
-                                                    <span class="bg-slate-50 px-1 rounded"><i class="fa-solid fa-box"></i> {{ formatCbm(item.cbm) }}m³</span>
-                                                    <span class="bg-slate-50 px-1 rounded"><i class="fa-solid fa-weight-hanging"></i> {{ formatWeight(item.weight) }}</span>
-                                                    <span class="text-slate-300">|</span>
-                                                    <span class="font-bold text-slate-600">粗利 ¥{{ formatCompact(item.value) }}</span>
-                                                </div>
-                                            </div>
-                                            <div class="text-right whitespace-nowrap ml-2">
-                                                <div class="text-[9px] md:text-xs" :class="isLate(item, ship) ? 'text-red-500 font-bold' : 'text-slate-400'">
-                                                    期限 {{ formatDate(item.deadline) }}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div v-if="isLate(item, ship)" class="mt-1.5 bg-red-50 border border-red-100 rounded px-2 py-1 flex items-center justify-between gap-2 w-full">
-                                            <div class="flex items-center gap-1 text-[10px] md:text-xs text-red-600 font-bold">
-                                                <i class="fa-solid fa-triangle-exclamation"></i> {{ diffDays(item, ship) }}日遅延
-                                            </div>
-                                            <div class="text-[10px] md:text-xs text-red-500 font-mono">
-                                                損失 -¥{{ formatCompact(calcLoss(item, ship)) }}
-                                            </div>
-                                        </div>
-                                        <button @click="unassign(item.id, ship.id)" class="absolute top-2 right-2 text-slate-300 hover:text-red-500 p-1.5 active:scale-90 transition">
-                                            <i class="fa-solid fa-xmark text-sm md:text-base"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <teleport to="body">
-        <transition name="fade">
-            <div v-if="showSettings" class="fixed inset-0 z-[9999] flex items-start justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto" @click="showSettings = false">
-                <div class="bg-white w-full max-w-sm md:max-w-md rounded-xl shadow-2xl overflow-hidden mt-4 sm:mt-10" @click.stop>
-                    <div class="p-4 md:p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
-                        <h3 class="font-bold text-sm md:text-base text-slate-800 flex items-center gap-2"><i class="fa-solid fa-sliders text-indigo-500"></i> 設定</h3>
-                        <button @click="showSettings = false" class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center hover:bg-slate-300 transition">
-                            <i class="fa-solid fa-times text-sm"></i>
-                        </button>
-                    </div>
-                    <div class="p-5 md:p-6 space-y-6">
-                        <div class="space-y-2">
-                            <div class="flex justify-between text-sm md:text-base font-bold text-slate-700">
-                                <span>生成オーダー件数</span>
-                                <span class="bg-slate-100 px-2 py-0.5 rounded text-indigo-600">{{ settings.orderCount }}件</span>
-                            </div>
-                            <input type="range" v-model.number="settings.orderCount" min="10" max="200" step="10" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
-                            <div class="flex justify-end pt-1">
-                                <button @click="resetData" class="text-xs md:text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded transition border border-slate-200 font-bold flex items-center gap-1">
-                                    <i class="fa-solid fa-rotate"></i> データを再生成
-                                </button>
-                            </div>
-                        </div>
-                        <hr class="border-slate-100">
-                        <div class="space-y-2">
-                            <div class="flex justify-between text-sm md:text-base font-bold text-slate-700">
-                                <span>利益優先時の許容遅延</span>
-                                <span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-100">{{ settings.allowedDelay }}日</span>
-                            </div>
-                            <input type="range" v-model.number="settings.allowedDelay" min="1" max="30" step="1" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
-                            <p class="text-[10px] md:text-xs text-slate-400 text-right">※変更は次回の「最適化」実行時に反映されます</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </transition>
-    </teleport>
-
-    <teleport to="body">
-        <transition name="slide-up">
-            <div v-if="showModal" class="fixed inset-0 z-[9999] flex items-end justify-center sm:items-center bg-slate-900/60 backdrop-blur-sm" @click="closeModal">
-                <div class="bg-white w-full sm:w-[450px] rounded-t-2xl sm:rounded-xl shadow-2xl modal-content max-h-[85vh] flex flex-col overflow-hidden" @click.stop>
-                    <div class="p-4 md:p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                        <div>
-                            <div class="text-[10px] md:text-xs text-slate-500 font-bold uppercase tracking-wider">
-                                {{ isBatchMode ? 'Batch Assignment' : 'Manual Assignment' }}
-                            </div>
-                            <div class="font-bold text-slate-800 text-lg md:text-xl">
-                                {{ isBatchMode ? `${selectedIds.length}件のアイテム` : selectedOrder?.product }}
-                            </div>
-                        </div>
-                        <button @click="closeModal" class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center hover:bg-slate-300 transition">
-                            <i class="fa-solid fa-times"></i>
-                        </button>
-                    </div>
-                    <div class="flex-1 overflow-y-auto p-3 md:p-4 bg-slate-100 space-y-3">
-                        <div v-for="ship in shipments" :key="ship.id" @click="manualAssign(ship)"
-                             class="bg-white p-3 md:p-4 rounded-xl border border-slate-200 shadow-sm active:border-blue-500 active:ring-2 active:ring-blue-100 transition cursor-pointer relative overflow-hidden group hover:shadow-md">
-                            <div class="flex justify-between items-center mb-2">
-                                <span class="font-bold text-sm md:text-base text-slate-800">{{ ship.name }}</span>
-                                <span class="text-[10px] md:text-xs border px-1.5 py-0.5 rounded text-white border-none" 
-                                      :class="{
-                                          'bg-orange-500': ship.id==='S1', 
-                                          'bg-blue-500': ship.id==='S2', 
-                                          'bg-emerald-500': ship.id==='S3'
-                                      }">
-                                    {{ ship.type }}
-                                </span>
-                            </div>
-                            <div class="flex justify-between items-center text-xs md:text-sm text-slate-500 mb-2">
-                                <span><i class="fa-solid fa-calendar-check mr-1"></i> ETA: {{ formatDate(ship.eta) }}</span>
-                                
-                                <span v-if="!isBatchMode">
-                                    <span v-if="isLate(selectedOrder, ship)" class="text-red-500 font-bold bg-red-50 px-2 py-0.5 rounded-full border border-red-100">{{ diffDays(selectedOrder, ship) }}日遅れ</span>
-                                    <span v-else class="text-green-600 font-bold bg-green-50 px-2 py-0.5 rounded-full border border-green-100"><i class="fa-solid fa-check"></i> 納期OK</span>
-                                </span>
-                                <span v-else class="text-[10px] md:text-xs text-slate-400">一括割当</span>
-                            </div>
-                            
-                            <div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex">
-                                <div class="bg-blue-300 h-full transition-all duration-300" :style="{ width: (ship.containers.reduce((a,c)=>a+c.loadCbm,0) / (ship.containers.length*67 || 67) * 100) + '%' }"></div>
-                            </div>
-
-                            <div v-if="!isBatchMode && isLate(selectedOrder, ship)" class="text-[10px] md:text-xs text-red-500 text-right mt-1.5 font-mono">
-                                 遅延ペナルティ: -¥{{ formatCompact(calcLoss(selectedOrder, ship)) }}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </transition>
-    </teleport>
-
-</div>
-
-<script>
-let highsInstance = null;
-const { createApp, ref, reactive, computed, watch, onMounted } = Vue;
-
-createApp({
-    setup() {
-        const settings = reactive({ orderCount: 50, allowedDelay: 7 });
-        const showSettings = ref(false);
-
-        const orders = ref([]);
-        const shipments = ref([]);
-        const selectedIds = ref([]);
-        const isSolverReady = ref(false);
-        const isSolving = ref(false);
-        const currentView = ref('orders');
-        const currentMode = ref('strict');
-        
-        const showModal = ref(false);
-        const selectedOrder = ref(null);
-        const isBatchMode = ref(false);
-        
-        const snapshots = reactive({ strict: {}, profit: {} });
-
-        // --- 全選択・全解除のロジック追加 ---
-        const unassignedOrders = computed(() => orders.value.filter(o => !o.assignedTo));
-        
-        const isAllSelected = computed(() => {
-            return unassignedOrders.value.length > 0 && selectedIds.value.length === unassignedOrders.value.length;
-        });
-
-        const toggleAll = () => {
-            if (isAllSelected.value) {
-                selectedIds.value = [];
-            } else {
-                selectedIds.value = unassignedOrders.value.map(o => o.id);
-            }
-        };
-        // --------------------------------
-
-        onMounted(async () => {
-            initData();
-            try {
-                let f = window.highs || window.highsWasm || window.Module;
-                if (!f) { await new Promise(r => setTimeout(r, 1000)); f = window.highs || window.highsWasm || window.Module; }
-                if (f) {
-                    if (f.then) f = await f;
-                    highsInstance = await f({ locateFile: file => `https://cdn.jsdelivr.net/npm/highs@1.8.0/build/${file}` });
-                    isSolverReady.value = true;
-                }
-            } catch (e) { console.error(e); }
-        });
-
-        const initData = () => {
-            const today = new Date();
-            const newShips = [];
-            const d1 = new Date(today); d1.setDate(today.getDate()+2); 
-            const a1 = new Date(d1); a1.setDate(d1.getDate()+5);
-            newShips.push({ id: 'S1', name: 'Vessel 1 (Express)', type: 'Premium', baseCost: 600000, etd: fmtDate(d1), eta: fmtDate(a1), containers: [] });
-            const d2 = new Date(today); d2.setDate(today.getDate()+9);
-            const a2 = new Date(d2); a2.setDate(d2.getDate()+12);
-            newShips.push({ id: 'S2', name: 'Vessel 2 (Normal)', type: 'Standard', baseCost: 300000, etd: fmtDate(d2), eta: fmtDate(a2), containers: [] });
-            const d3 = new Date(today); d3.setDate(today.getDate()+16);
-            const a3 = new Date(d3); a3.setDate(d3.getDate()+30);
-            newShips.push({ id: 'S3', name: 'Vessel 3 (Slow)', type: 'Economy', baseCost: 150000, etd: fmtDate(d3), eta: fmtDate(a3), containers: [] });
-            shipments.value = newShips;
-
-            const newOrders = [];
-            let idCounter = 1;
-            const total = settings.orderCount;
-            const c1 = Math.max(1, Math.floor(total * 0.11)); 
-            const c2 = Math.max(1, Math.floor(total * 0.44)); 
-            const c3 = Math.max(1, Math.floor(total * 0.18)); 
-            const c4 = Math.max(0, total - c1 - c2 - c3);
-
-            for(let i=0; i<c1; i++) newOrders.push(createOrder(idCounter++, "保守部品(急)", 3.0, 500, 10000000, 0.05, addDaysSafe(a1, 0)));
-            for(let i=0; i<c2; i++) newOrders.push(createOrder(idCounter++, "個別製造品", 6.0, 800, 1000000, 0.04, addDaysSafe(a1, 2+Math.floor(Math.random()*3))));
-            for(let i=0; i<c3; i++) newOrders.push(createOrder(idCounter++, "汎用量産品", 6.0, 800, 2000000, 0.03, addDaysSafe(a2, -2+Math.floor(Math.random()*3))));
-            for(let i=0; i<c4; i++) newOrders.push(createOrder(idCounter++, "再生加工品", 6.0, 8000, 50000, 0.02, addDaysSafe(a3, -5+Math.floor(Math.random()*5))));
-            orders.value = newOrders;
-            selectedIds.value = [];
-            snapshots.strict = {}; snapshots.profit = {};
-        };
-
-        const addDaysSafe = (baseDate, days) => {
-            const res = new Date(baseDate); 
-            if(isNaN(res.getTime())) return new Date(); 
-            res.setDate(res.getDate() + days);
-            return res;
-        };
-        const createOrder = (id, name, baseCbm, baseWgt, baseVal, decay, deadlineDate) => {
-            const variance = 0.85 + (Math.random() * 0.3);
-            return {
-                id: `PO-${String(id).padStart(3, '0')}`,
-                product: name, 
-                cbm: Math.round(baseCbm * variance * 10) / 10, 
-                weight: Math.round(baseWgt * variance), 
-                value: Math.round(baseVal * variance), 
-                decayRate: decay,
-                deadline: deadlineDate.toISOString().split('T')[0], 
-                assignedTo: null
-            };
-        };
-        const fmtDate = (d) => d.toISOString().split('T')[0];
-
-        const runOptimization = async () => {
-            if (!highsInstance) return;
-            isSolving.value = true;
-            await new Promise(r => setTimeout(r, 100));
-
-            try {
-                const O = orders.value; const S = shipments.value; const mode = currentMode.value;
-                const LP_CAP_CBM = 55; const UNASSIGNED_COST = 1e8; 
-                const MAX_DELAY_PROFIT = settings.allowedDelay; 
-
-                let lp = "Minimize\n obj: "; let objTerms = [];
-                S.forEach((s, j) => objTerms.push(`${Math.round(s.baseCost)} y${j}`));
-                O.forEach((o, i) => {
-                    objTerms.push(`${UNASSIGNED_COST} u${i}`);
-                    S.forEach((s, j) => {
-                        let valid = true; let penalty = 0;
-                        if (s.eta > o.deadline) {
-                            if (mode === 'strict') valid = false;
-                            else {
-                                const days = diffDays(o, s);
-                                if (days > MAX_DELAY_PROFIT) valid = false;
-                                else penalty = days * (o.value * o.decayRate);
-                            }
-                        }
-                        if (valid) objTerms.push(`+ ${Math.round(penalty)} x_${i}_${j}`);
-                    });
-                });
-                lp += objTerms.join(" ") + "\nSubject To\n";
-                let cCount = 0;
-                O.forEach((o, i) => {
-                    let terms = [`u${i}`];
-                    S.forEach((s, j) => {
-                        let valid = true;
-                        if (s.eta > o.deadline) { if (mode === 'strict') valid = false; else if (diffDays(o, s) > MAX_DELAY_PROFIT) valid = false; }
-                        if (valid) terms.push(`x_${i}_${j}`);
-                    });
-                    lp += ` c${cCount++}: ${terms.join(" + ")} = 1\n`;
-                });
-                S.forEach((s, j) => {
-                    let terms = [];
-                    O.forEach((o, i) => {
-                        let valid = true;
-                        if (s.eta > o.deadline) { if (mode === 'strict') valid = false; else if (diffDays(o, s) > MAX_DELAY_PROFIT) valid = false; }
-                        if (valid) terms.push(`${Math.floor(o.cbm)} x_${i}_${j}`);
-                    });
-                    if (terms.length > 0) lp += ` c${cCount++}: ${terms.join(" + ")} - ${LP_CAP_CBM} y${j} <= 0\n`;
-                });
-                lp += "Bounds\n"; S.forEach((s, j) => lp += ` 0 <= y${j} <= 50\n`);
-                lp += "Binary\n";
-                O.forEach((o, i) => { lp += ` u${i}\n`; S.forEach((s, j) => {
-                    let valid = true;
-                    if (s.eta > o.deadline) { if (mode === 'strict') valid = false; else if (diffDays(o, s) > MAX_DELAY_PROFIT) valid = false; }
-                    if (valid) lp += ` x_${i}_${j}\n`;
-                });});
-                lp += "Generals\n"; S.forEach((s, j) => lp += ` y${j}\n`);
-                lp += "End\n";
-
-                const options = { time_limit: 5.0, mip_rel_gap: 0.05, presolve: 'on', threads: 1 };
-                const res = highsInstance.solve(lp, options);
-                
-                if (res.Status === 'Optimal' || res.Status === 'Time Limit' || res.Status === 'Reached Time Limit') {
-                    if(!res.Columns) throw new Error("No solution found within time limit");
-                    O.forEach(o => o.assignedTo = null);
-                    S.forEach(s => s.containers = []);
-                    for (const [k, v] of Object.entries(res.Columns)) {
-                        const val = (typeof v === 'object' && v?.Primal!==undefined) ? v.Primal : v;
-                        if (val > 0.5 && k.startsWith('x_')) {
-                            const parts = k.split('_'); 
-                            if(O[parseInt(parts[1])] && S[parseInt(parts[2])]) O[parseInt(parts[1])].assignedTo = S[parseInt(parts[2])].id;
-                        }
-                    }
-                    runBinPacking();
-                    saveSnapshot(mode);
-                    selectedIds.value = []; 
-                    currentView.value = 'ships'; 
-                } else {
-                    alert("最適解が見つかりませんでした。条件を緩めて試してください。");
-                }
-            } catch(e) { 
-                console.error(e); 
-                alert("計算エラーが発生しました。"); 
-            } finally { 
-                isSolving.value = false; 
-            }
-        };
-
-        const runBinPacking = () => {
-            const MAX_CBM = 67; const MAX_WGT = 26000;
-            shipments.value.forEach(ship => {
-                ship.containers = [];
-                const assigned = orders.value.filter(o => o.assignedTo === ship.id);
-                assigned.sort((a,b) => b.weight - a.weight);
-                assigned.forEach(o => {
-                    let fitted = false;
-                    for (let c of ship.containers) {
-                        if (c.loadCbm + o.cbm <= MAX_CBM && c.loadWeight + o.weight <= MAX_WGT) {
-                            c.orders.push(o); c.loadCbm += o.cbm; c.loadWeight += o.weight; fitted = true; break;
-                        }
-                    }
-                    if (!fitted) ship.containers.push({ cost: ship.baseCost, loadCbm: o.cbm, loadWeight: o.weight, maxCbm: MAX_CBM, maxWeight: MAX_WGT, orders: [o] });
-                });
-            });
-        };
-
-        const saveSnapshot = (mode) => {
-            const map = {}; orders.value.forEach(o => { if(o.assignedTo) map[o.id] = o.assignedTo; }); snapshots[mode] = map;
-        };
-        const restoreSnapshot = (mode) => {
-            const map = snapshots[mode];
-            orders.value.forEach(o => o.assignedTo = null); shipments.value.forEach(s => s.containers = []);
-            if (map) orders.value.forEach(o => { if(map[o.id]) o.assignedTo = map[o.id]; });
-            runBinPacking();
-        };
-        watch(currentMode, (n, o) => { saveSnapshot(o); restoreSnapshot(n); });
-
-        const openAssignModal = (o) => { selectedOrder.value = o; isBatchMode.value = false; showModal.value = true; };
-        const openBatchModal = () => { isBatchMode.value = true; showModal.value = true; };
-        const closeModal = () => { showModal.value = false; selectedOrder.value = null; };
-        
-        const manualAssign = (ship) => {
-            if (isBatchMode.value) {
-                selectedIds.value.forEach(id => {
-                    const order = orders.value.find(o => o.id === id);
-                    if (order) order.assignedTo = ship.id;
-                });
-                selectedIds.value = []; 
-            } else {
-                if(selectedOrder.value) selectedOrder.value.assignedTo = ship.id;
-            }
-            runBinPacking();
-            saveSnapshot(currentMode.value);
-            closeModal();
-        };
-        
-        const unassign = (oid, sid) => {
-            const o = orders.value.find(x => x.id === oid);
-            if(o) { o.assignedTo = null; runBinPacking(); saveSnapshot(currentMode.value); }
-        };
-        const resetData = () => { initData(); };
-
-        const totalShippingCost = computed(() => shipments.value.reduce((s, ship) => s + ship.containers.reduce((c, cont) => c + cont.cost, 0), 0));
-        const totalLoss = computed(() => shipments.value.reduce((acc, s) => acc + s.containers.reduce((cSum, c) => cSum + c.orders.reduce((oSum, o)=>oSum+calcLoss(o,s),0), 0), 0));
-        const economicValue = computed(() => {
-            let gross = 0; shipments.value.forEach(s => s.containers.forEach(c => c.orders.forEach(o => gross += o.value)));
-            return gross - totalShippingCost.value - totalLoss.value;
-        });
-
-        const isLate = (o, s) => s && s.eta > o.deadline;
-        const diffDays = (o, s) => {
-            if (!s || !s.eta || !o.deadline) return 0;
-            const d1 = new Date(s.eta); const d2 = new Date(o.deadline);
-            if (isNaN(d1) || isNaN(d2)) return 0; return Math.max(0, Math.ceil((d1 - d2) / 86400000));
-        };
-        const calcLoss = (o, s) => isLate(o, s) ? Math.round(diffDays(o, s) * (o.value * o.decayRate)) : 0;
-        const formatDate = (s) => s ? s.substring(5).replace('-', '/') : '';
-        const formatWeight = (w) => (w/1000).toFixed(1) + 't';
-        const formatCompact = (n) => n.toLocaleString();
-        const formatCbm = (n) => n.toFixed(1);
-
-        const toggleSelection = (id) => {
-            if (selectedIds.value.includes(id)) {
-                selectedIds.value = selectedIds.value.filter(x => x !== id);
-            } else {
-                selectedIds.value.push(id);
-            }
-        };
-
-        return {
-            currentView, currentMode, isSolverReady, isSolving, showModal, selectedOrder, showSettings,
-            orders, shipments, unassignedOrders, economicValue, totalLoss, totalShippingCost, settings,
-            selectedIds, isBatchMode, isAllSelected, toggleAll,
-            initData, resetData, runOptimization, 
-            openAssignModal, openBatchModal, closeModal, manualAssign, unassign, toggleSelection,
-            formatDate, formatWeight, formatCompact, formatCbm, isLate, diffDays, calcLoss
-        };
-    }
-}).mount('#app');
-</script>
-</body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>ShipOpt</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/highs@1.8.0/build/highs.js"></script>
+
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
+            background-color: #f1f5f9; 
+            overscroll-behavior: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .h-dvh { height: 100vh; height: 100dvh; }
+        
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+        .slide-up-enter-active, .slide-up-leave-active { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .slide-up-enter-from, .slide-up-leave-to { transform: translateY(100%); }
+        
+        input[type=range] { -webkit-appearance: none; background: transparent; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #4f46e5; margin-top: -6px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); cursor: pointer; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #cbd5e1; border-radius: 2px; }
+        
+        .tab-indicator { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+
+        .custom-checkbox { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #cbd5e1; appearance: none; cursor: pointer; position: relative; transition: all 0.2s; }
+        .custom-checkbox:checked { background-color: #4f46e5; border-color: #4f46e5; }
+        .custom-checkbox:checked::after { content: '\f00c'; font-family: 'Font Awesome 6 Free'; font-weight: 900; color: white; font-size: 10px; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+
+        @media (min-width: 768px) {
+            .custom-checkbox { width: 20px; height: 20px; }
+            .custom-checkbox:checked::after { font-size: 12px; }
+        }
+
+        @media (max-height: 500px) and (orientation: landscape) {
+            .landscape-tight-py { padding-top: 4px !important; padding-bottom: 4px !important; }
+            .landscape-compact-text { font-size: 0.75rem !important; }
+            .landscape-header-px { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+        }
+
+        [v-cloak] { display: none; }
+    </style>
+</head>
+<body class="text-slate-800 h-dvh w-screen overflow-hidden bg-slate-50">
+
+<div id="app" v-cloak class="flex flex-col h-full w-full">
+
+    <header class="bg-white text-slate-800 z-30 shadow-sm shrink-0 relative flex flex-col w-full">
+        <div class="px-4 py-2 md:py-3 landscape-tight-py landscape-header-px flex justify-between items-center border-b border-slate-100 z-30 relative bg-white w-full">
+            <div class="flex items-center gap-2 md:gap-3 min-w-0">
+                <div class="bg-blue-500 text-white w-8 h-8 md:w-10 md:h-10 rounded flex items-center justify-center shadow-md flex-shrink-0">
+                    <i class="fa-solid fa-ship md:text-lg"></i>
+                </div>
+                <div class="min-w-0">
+                    <h1 class="font-bold text-sm md:text-xl leading-none tracking-tight text-slate-800 truncate">ShipOpt</h1>
+                    <span v-if="!isSolverReady" class="text-[10px] md:text-xs text-orange-500 flex items-center gap-1 truncate"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading...</span>
+                    <span v-else class="text-[10px] md:text-xs text-green-600 flex items-center gap-1 font-bold truncate"><i class="fa-solid fa-check"></i> System Ready</span>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-3 md:gap-6 flex-shrink-0 ml-2">
+                <div class="text-right">
+                    <div class="text-[9px] md:text-xs text-slate-400 font-medium leading-none mb-1">Cost (Shipping+Loss)</div>
+                    <div class="font-mono font-bold text-sm sm:text-base md:text-2xl leading-none text-slate-700">
+                        ¥{{ formatCompact(totalShippingCost + totalLoss) }}
+                    </div>
+                </div>
+                <div class="h-6 md:h-8 w-px bg-slate-200"></div>
+                <div class="text-right">
+                    <div class="text-[9px] md:text-xs text-slate-400 font-medium leading-none mb-1">Profit</div>
+                    <div class="font-mono font-bold text-sm sm:text-base md:text-2xl leading-none" :class="economicValue >= 0 ? 'text-emerald-600' : 'text-red-500'">
+                        ¥{{ formatCompact(economicValue) }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="px-4 py-2 md:py-3 landscape-tight-py landscape-header-px bg-slate-50/80 border-b border-slate-200 backdrop-blur-sm relative z-20 w-full">
+            <div class="flex gap-2 md:gap-4 w-full">
+                <div class="flex-1 flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm h-9 md:h-11 items-center min-w-0">
+                    <button @click="currentMode='strict'" 
+                            class="flex-1 h-full rounded text-[10px] sm:text-[11px] md:text-sm font-bold transition-all flex items-center justify-center gap-1.5 hover:bg-slate-50 min-w-0 px-1"
+                            :class="currentMode==='strict' ? 'bg-orange-500 text-white shadow hover:!bg-orange-600' : 'text-slate-500'">
+                        <i class="fa-solid fa-stopwatch flex-shrink-0"></i> <span class="truncate">Strict Deadline</span>
+                    </button>
+                    <button @click="currentMode='profit'" 
+                            class="flex-1 h-full rounded text-[10px] sm:text-[11px] md:text-sm font-bold transition-all flex items-center justify-center gap-1 leading-none hover:bg-slate-50 min-w-0 px-1"
+                            :class="currentMode==='profit' ? 'bg-emerald-600 text-white shadow hover:!bg-emerald-500' : 'text-slate-500'">
+                        <i class="fa-solid fa-sack-dollar flex-shrink-0"></i> 
+                        <span class="truncate">Max Profit (Delay &le; {{ settings.allowedDelay }}d)</span>
+                    </button>
+                </div>
+                <button @click="showSettings = true" 
+                        class="w-9 h-9 bg-white text-slate-500 rounded-lg border border-slate-200 shadow-sm flex items-center justify-center hover:bg-slate-50 hover:text-indigo-600 transition active:scale-95 flex-shrink-0">
+                    <i class="fa-solid fa-gear md:text-lg"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="flex bg-white relative items-center pr-2 md:pr-4 border-b border-slate-200 z-10 shrink-0 w-full landscape-header-px">
+            <div class="flex-1 flex relative min-w-0">
+                <button @click="currentView='orders'" class="flex-1 py-3 md:py-4 landscape-tight-py text-xs md:text-sm font-bold flex items-center justify-center gap-1 sm:gap-2 transition-colors relative z-10 min-w-0 px-1"
+                        :class="currentView==='orders' ? 'text-indigo-600' : 'text-slate-400 hover:bg-slate-50'">
+                    <i class="fa-solid fa-clipboard-list flex-shrink-0 md:text-base"></i> 
+                    <span class="truncate">Orders</span>
+                    <span v-if="unassignedOrders.length > 0" class="bg-red-500 text-white text-[9px] md:text-xs px-1.5 py-0.5 rounded-full min-w-[18px] text-center ml-0.5 flex-shrink-0">
+                        {{ unassignedOrders.length }}
+                    </span>
+                </button>
+                <button @click="currentView='ships'" class="flex-1 py-3 md:py-4 landscape-tight-py text-xs md:text-sm font-bold flex items-center justify-center gap-1 sm:gap-2 transition-colors relative z-10 min-w-0 px-1"
+                        :class="currentView==='ships' ? 'text-indigo-600' : 'text-slate-400 hover:bg-slate-50'">
+                    <i class="fa-solid fa-ship flex-shrink-0 md:text-base"></i> 
+                    <span class="truncate">Shipments</span>
+                    <span class="bg-slate-100 text-slate-500 text-[9px] md:text-xs px-1.5 py-0.5 rounded-full ml-0.5 border border-slate-200 flex-shrink-0">{{ shipments.length }}</span>
+                </button>
+                <div class="absolute bottom-0 h-0.5 md:h-1 bg-indigo-600 tab-indicator z-20 w-1/2"
+                     :style="{ transform: currentView === 'orders' ? 'translateX(0%)' : 'translateX(100%)' }">
+                </div>
+            </div>
+
+            <div class="pl-2 md:pl-4 border-l border-slate-100 py-1 flex-shrink-0">
+                <button @click="runOptimization" :disabled="!isSolverReady || isSolving"
+                        class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 sm:px-4 md:px-6 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-bold shadow-sm shadow-indigo-200 flex items-center justify-center gap-1 md:gap-2 disabled:opacity-50 transition active:scale-[0.97] whitespace-nowrap h-8 md:h-10">
+                    <span v-if="isSolving"><i class="fa-solid fa-circle-notch fa-spin"></i></span>
+                    <span v-else><i class="fa-solid fa-wand-magic-sparkles"></i> Optimize</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex-1 overflow-hidden relative w-full bg-slate-100">
+        <div v-show="currentView === 'orders'" class="h-full flex flex-col w-full">
+            <div v-if="unassignedOrders.length === 0" class="flex-1 flex flex-col items-center justify-center text-slate-400">
+                <div class="bg-white p-6 md:p-10 rounded-full shadow-sm mb-4"><i class="fa-solid fa-check text-5xl md:text-7xl text-emerald-400"></i></div>
+                <span class="text-sm md:text-xl font-bold text-slate-500">All orders assigned</span>
+            </div>
+
+            <div v-else class="flex-1 overflow-y-auto p-2 md:p-4 pb-20 w-full landscape-header-px">
+                <div class="flex justify-between items-center px-2 mb-2">
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" :checked="isAllSelected" @change="toggleAll" class="custom-checkbox">
+                        <span class="text-xs md:text-sm font-bold text-slate-500">Unassigned List ({{ unassignedOrders.length }})</span>
+                    </div>
+                    <button v-if="selectedIds.length > 0" @click="selectedIds = []" class="text-[10px] md:text-xs text-slate-400 underline hover:text-slate-600 font-bold">Deselect All</button>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4">
+                    <div v-for="order in unassignedOrders" :key="order.id" 
+                         class="bg-white rounded-lg shadow-sm border border-slate-200 p-2 md:p-3 flex items-center hover:bg-slate-50 transition group cursor-pointer"
+                         :class="selectedIds.includes(order.id) ? 'bg-indigo-50/50 border-indigo-200' : ''"
+                         @click="toggleSelection(order.id)">
+                        
+                        <div class="mr-3 flex-shrink-0" @click.stop>
+                            <input type="checkbox" :value="order.id" v-model="selectedIds" class="custom-checkbox">
+                        </div>
+
+                        <div class="flex-1 min-w-0 mr-2 grid grid-cols-12 gap-2 items-center">
+                            <div class="col-span-4 min-w-0">
+                                <div class="font-bold text-xs md:text-sm text-slate-800 truncate">{{ order.product }}</div>
+                                <div class="text-[9px] md:text-xs text-slate-400 font-mono">{{ order.id }}</div>
+                            </div>
+                            <div class="col-span-4 text-center min-w-0">
+                                <div class="text-[10px] md:text-sm font-bold text-slate-600 truncate">¥{{ formatCompact(order.value) }} <span class="text-[6px] md:text-[8px] font-normal text-slate-400">Profit</span></div>
+                                <div class="text-[9px] md:text-xs text-slate-400 font-mono flex justify-center gap-1.5 truncate">
+                                    <span><i class="fa-solid fa-box text-slate-300"></i> {{ formatCbm(order.cbm) }}m³</span>
+                                    <span><i class="fa-solid fa-weight-hanging text-slate-300"></i> {{ formatWeight(order.weight) }}</span>
+                                </div>
+                            </div>
+                            <div class="col-span-4 text-right min-w-0">
+                                <div class="text-[10px] md:text-sm font-bold truncate" :class="isLate(order, null) ? 'text-red-500' : 'text-slate-600'">
+                                    <i class="fa-regular fa-clock mr-0.5"></i>{{ formatDate(order.deadline) }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <button @click.stop="openAssignModal(order)" class="w-7 h-7 md:w-9 md:h-9 rounded-full bg-slate-100 text-slate-400 hover:bg-indigo-100 hover:text-indigo-600 flex items-center justify-center transition ml-1 flex-shrink-0">
+                            <i class="fa-solid fa-chevron-right text-xs md:text-sm"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <transition name="slide-up">
+                <div v-if="selectedIds.length > 0" class="absolute bottom-4 left-4 right-4 md:left-1/3 md:right-1/3 bg-slate-800 text-white p-3 md:p-4 rounded-xl shadow-xl flex justify-between items-center z-40">
+                    <div class="flex items-center gap-3">
+                        <div class="bg-indigo-500 w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center font-bold text-sm md:text-base">{{ selectedIds.length }}</div>
+                        <div class="text-xs md:text-sm">
+                            <div class="font-bold">Items Selected</div>
+                            <div class="text-slate-400 text-[10px] md:text-xs">Perform batch assignment</div>
+                        </div>
+                    </div>
+                    <button @click="openBatchModal" class="bg-white text-slate-800 px-4 py-2 md:px-6 md:py-2.5 rounded-lg text-xs md:text-sm font-bold hover:bg-indigo-50 transition active:scale-95">
+                        Batch Assign <i class="fa-solid fa-arrow-right ml-1"></i>
+                    </button>
+                </div>
+            </transition>
+        </div>
+
+        <div v-show="currentView === 'ships'" class="h-full overflow-y-auto p-3 md:p-5 w-full">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-20 landscape-header-px">
+                <div v-for="ship in shipments" :key="ship.id" class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col hover:shadow-md transition">
+                    <div class="bg-slate-800 text-white p-3 md:p-4 flex justify-between items-center sticky top-0 z-10 shrink-0">
+                        <div class="min-w-0">
+                            <div class="font-bold text-sm md:text-base flex items-center gap-2 truncate">
+                                {{ ship.name }} 
+                                <span class="text-[9px] md:text-[10px] border px-1.5 py-0.5 rounded flex-shrink-0 text-white border-none" 
+                                      :class="{
+                                          'bg-orange-500': ship.id==='S1', 
+                                          'bg-blue-500': ship.id==='S2', 
+                                          'bg-emerald-500': ship.id==='S3'
+                                      }">
+                                    {{ ship.type }}
+                                </span>
+                            </div>
+                            <div class="text-xs md:text-sm text-sky-200 mt-1 font-bold flex items-center gap-1">
+                                <i class="fa-solid fa-calendar-check"></i> ETA: {{ formatDate(ship.eta) }}
+                            </div>
+                        </div>
+                        <div class="text-right flex-shrink-0 ml-2">
+                            <div class="text-lg md:text-xl font-bold text-white">{{ ship.containers.length }} <span class="text-[10px] md:text-xs font-normal opacity-70">units</span></div>
+                            <div class="text-[10px] md:text-xs text-slate-400">¥{{ formatCompact(ship.baseCost) }}/unit</div>
+                        </div>
+                    </div>
+
+                    <div class="p-2 md:p-3 bg-slate-100 min-h-[80px]">
+                        <div v-if="ship.containers.length === 0" class="flex flex-col items-center justify-center h-24 text-slate-400 text-xs md:text-sm italic border-2 border-dashed border-slate-200 rounded-lg bg-slate-50">
+                            <span>No load</span>
+                        </div>
+                        <div v-else class="space-y-3">
+                            <div v-for="(cont, cIdx) in ship.containers" :key="cIdx" class="bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden">
+                                <div class="px-3 py-2 md:py-3 border-b border-slate-100 bg-slate-50 flex flex-col gap-1.5">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-[10px] md:text-sm font-bold text-slate-600 flex items-center gap-1">
+                                            <i class="fa-solid fa-layer-group text-blue-400"></i> Container #{{ cIdx+1 }}
+                                            <span class="bg-blue-100 text-blue-600 px-1.5 rounded text-[9px] md:text-[10px] font-mono border border-blue-200">40'HC</span>
+                                        </span>
+                                        <span class="text-[10px] md:text-xs text-slate-400 font-mono">Cost: ¥{{ formatCompact(cont.cost) }}</span>
+                                    </div>
+                                    <div class="flex gap-2 text-[9px] md:text-xs">
+                                        <div class="flex-1">
+                                            <div class="flex justify-between mb-0.5 text-slate-500">
+                                                <span>Vol</span>
+                                                <span class="font-bold">{{ formatCbm(cont.loadCbm) }}/{{ cont.maxCbm }}m³ <span class="text-slate-400 font-normal">({{ Math.round(cont.loadCbm/cont.maxCbm*100) }}%)</span></span>
+                                            </div>
+                                            <div class="h-1.5 md:h-2 bg-slate-200 rounded-full overflow-hidden">
+                                                <div class="h-full bg-blue-500 rounded-full" :style="{width: Math.min(100, cont.loadCbm/cont.maxCbm*100)+'%'}"></div>
+                                            </div>
+                                        </div>
+                                        <div class="flex-1">
+                                            <div class="flex justify-between mb-0.5 text-slate-500">
+                                                <span>Wgt</span>
+                                                <span class="font-bold">{{ formatWeight(cont.loadWeight) }}/{{ formatWeight(cont.maxWeight) }} <span class="text-slate-400 font-normal">({{ Math.round(cont.loadWeight/cont.maxWeight*100) }}%)</span></span>
+                                            </div>
+                                            <div class="h-1.5 md:h-2 bg-slate-200 rounded-full overflow-hidden">
+                                                <div class="h-full bg-orange-500 rounded-full" :style="{width: Math.min(100, cont.loadWeight/cont.maxWeight*100)+'%'}"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="divide-y divide-slate-100 bg-white">
+                                    <div v-for="item in cont.orders" :key="item.id" 
+                                         class="p-2 md:p-3 hover:bg-slate-50 transition-colors relative group">
+                                        <div class="flex justify-between items-start pr-8">
+                                            <div class="min-w-0 flex-1">
+                                                <div class="flex items-center gap-2 mb-0.5">
+                                                    <span class="font-bold text-xs md:text-sm text-slate-700 truncate max-w-[60%]">{{ item.product }}</span>
+                                                    <span class="text-[9px] md:text-xs bg-slate-100 px-1 rounded text-slate-400 font-mono">{{ item.id }}</span>
+                                                </div>
+                                                <div class="text-[9px] md:text-xs text-slate-500 mt-0.5 flex gap-2 font-mono items-center">
+                                                    <span class="bg-slate-50 px-1 rounded"><i class="fa-solid fa-box"></i> {{ formatCbm(item.cbm) }}m³</span>
+                                                    <span class="bg-slate-50 px-1 rounded"><i class="fa-solid fa-weight-hanging"></i> {{ formatWeight(item.weight) }}</span>
+                                                    <span class="text-slate-300">|</span>
+                                                    <span class="font-bold text-slate-600">Profit ¥{{ formatCompact(item.value) }}</span>
+                                                </div>
+                                            </div>
+                                            <div class="text-right whitespace-nowrap ml-2">
+                                                <div class="text-[9px] md:text-xs" :class="isLate(item, ship) ? 'text-red-500 font-bold' : 'text-slate-400'">
+                                                    Due {{ formatDate(item.deadline) }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div v-if="isLate(item, ship)" class="mt-1.5 bg-red-50 border border-red-100 rounded px-2 py-1 flex items-center justify-between gap-2 w-full">
+                                            <div class="flex items-center gap-1 text-[10px] md:text-xs text-red-600 font-bold">
+                                                <i class="fa-solid fa-triangle-exclamation"></i> {{ diffDays(item, ship) }}d delay
+                                            </div>
+                                            <div class="text-[10px] md:text-xs text-red-500 font-mono">
+                                                Loss -¥{{ formatCompact(calcLoss(item, ship)) }}
+                                            </div>
+                                        </div>
+                                        <button @click="unassign(item.id, ship.id)" class="absolute top-2 right-2 text-slate-300 hover:text-red-500 p-1.5 active:scale-90 transition">
+                                            <i class="fa-solid fa-xmark text-sm md:text-base"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <teleport to="body">
+        <transition name="fade">
+            <div v-if="showSettings" class="fixed inset-0 z-[9999] flex items-start justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto" @click="showSettings = false">
+                <div class="bg-white w-full max-w-sm md:max-w-md rounded-xl shadow-2xl overflow-hidden mt-4 sm:mt-10" @click.stop>
+                    <div class="p-4 md:p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
+                        <h3 class="font-bold text-sm md:text-base text-slate-800 flex items-center gap-2"><i class="fa-solid fa-sliders text-indigo-500"></i> Settings</h3>
+                        <button @click="showSettings = false" class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center hover:bg-slate-300 transition">
+                            <i class="fa-solid fa-times text-sm"></i>
+                        </button>
+                    </div>
+                    <div class="p-5 md:p-6 space-y-6">
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm md:text-base font-bold text-slate-700">
+                                <span>Order Count</span>
+                                <span class="bg-slate-100 px-2 py-0.5 rounded text-indigo-600">{{ settings.orderCount }}</span>
+                            </div>
+                            <input type="range" v-model.number="settings.orderCount" min="10" max="200" step="10" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                            <div class="flex justify-end pt-1">
+                                <button @click="resetData" class="text-xs md:text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded transition border border-slate-200 font-bold flex items-center gap-1">
+                                    <i class="fa-solid fa-rotate"></i> Regenerate Data
+                                </button>
+                            </div>
+                        </div>
+                        <hr class="border-slate-100">
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm md:text-base font-bold text-slate-700">
+                                <span>Allowed Delay (Profit Mode)</span>
+                                <span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-100">{{ settings.allowedDelay }} days</span>
+                            </div>
+                            <input type="range" v-model.number="settings.allowedDelay" min="1" max="30" step="1" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                            <p class="text-[10px] md:text-xs text-slate-400 text-right">* Changes will be applied in the next optimization.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </transition>
+    </teleport>
+
+    <teleport to="body">
+        <transition name="slide-up">
+            <div v-if="showModal" class="fixed inset-0 z-[9999] flex items-end justify-center sm:items-center bg-slate-900/60 backdrop-blur-sm" @click="closeModal">
+                <div class="bg-white w-full sm:w-[450px] rounded-t-2xl sm:rounded-xl shadow-2xl modal-content max-h-[85vh] flex flex-col overflow-hidden" @click.stop>
+                    <div class="p-4 md:p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                        <div>
+                            <div class="text-[10px] md:text-xs text-slate-500 font-bold uppercase tracking-wider">
+                                {{ isBatchMode ? 'Batch Assignment' : 'Manual Assignment' }}
+                            </div>
+                            <div class="font-bold text-slate-800 text-lg md:text-xl">
+                                {{ isBatchMode ? `${selectedIds.length} items` : selectedOrder?.product }}
+                            </div>
+                        </div>
+                        <button @click="closeModal" class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center hover:bg-slate-300 transition">
+                            <i class="fa-solid fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-3 md:p-4 bg-slate-100 space-y-3">
+                        <div v-for="ship in shipments" :key="ship.id" @click="manualAssign(ship)"
+                             class="bg-white p-3 md:p-4 rounded-xl border border-slate-200 shadow-sm active:border-blue-500 active:ring-2 active:ring-blue-100 transition cursor-pointer relative overflow-hidden group hover:shadow-md">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="font-bold text-sm md:text-base text-slate-800">{{ ship.name }}</span>
+                                <span class="text-[10px] md:text-xs border px-1.5 py-0.5 rounded text-white border-none" 
+                                      :class="{
+                                          'bg-orange-500': ship.id==='S1', 
+                                          'bg-blue-500': ship.id==='S2', 
+                                          'bg-emerald-500': ship.id==='S3'
+                                      }">
+                                    {{ ship.type }}
+                                </span>
+                            </div>
+                            <div class="flex justify-between items-center text-xs md:text-sm text-slate-500 mb-2">
+                                <span><i class="fa-solid fa-calendar-check mr-1"></i> ETA: {{ formatDate(ship.eta) }}</span>
+                                
+                                <span v-if="!isBatchMode">
+                                    <span v-if="isLate(selectedOrder, ship)" class="text-red-500 font-bold bg-red-50 px-2 py-0.5 rounded-full border border-red-100">{{ diffDays(selectedOrder, ship) }}d late</span>
+                                    <span v-else class="text-green-600 font-bold bg-green-50 px-2 py-0.5 rounded-full border border-green-100"><i class="fa-solid fa-check"></i> On time</span>
+                                </span>
+                                <span v-else class="text-[10px] md:text-xs text-slate-400">Batch Assignment</span>
+                            </div>
+                            
+                            <div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                                <div class="bg-blue-300 h-full transition-all duration-300" :style="{ width: (ship.containers.reduce((a,c)=>a+c.loadCbm,0) / (ship.containers.length*67 || 67) * 100) + '%' }"></div>
+                            </div>
+
+                            <div v-if="!isBatchMode && isLate(selectedOrder, ship)" class="text-[10px] md:text-xs text-red-500 text-right mt-1.5 font-mono">
+                                 Delay Penalty: -¥{{ formatCompact(calcLoss(selectedOrder, ship)) }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </transition>
+    </teleport>
+
+</div>
+
+<script>
+let highsInstance = null;
+const { createApp, ref, reactive, computed, watch, onMounted } = Vue;
+
+createApp({
+    setup() {
+        const settings = reactive({ orderCount: 50, allowedDelay: 7 });
+        const showSettings = ref(false);
+
+        const orders = ref([]);
+        const shipments = ref([]);
+        const selectedIds = ref([]);
+        const isSolverReady = ref(false);
+        const isSolving = ref(false);
+        const currentView = ref('orders');
+        const currentMode = ref('strict');
+        
+        const showModal = ref(false);
+        const selectedOrder = ref(null);
+        const isBatchMode = ref(false);
+        
+        const snapshots = reactive({ strict: {}, profit: {} });
+
+        const unassignedOrders = computed(() => orders.value.filter(o => !o.assignedTo));
+        
+        const isAllSelected = computed(() => {
+            return unassignedOrders.value.length > 0 && selectedIds.value.length === unassignedOrders.value.length;
+        });
+
+        const toggleAll = () => {
+            if (isAllSelected.value) {
+                selectedIds.value = [];
+            } else {
+                selectedIds.value = unassignedOrders.value.map(o => o.id);
+            }
+        };
+
+        onMounted(async () => {
+            initData();
+            try {
+                let f = window.highs || window.highsWasm || window.Module;
+                if (!f) { await new Promise(r => setTimeout(r, 1000)); f = window.highs || window.highsWasm || window.Module; }
+                if (f) {
+                    if (f.then) f = await f;
+                    highsInstance = await f({ locateFile: file => `https://cdn.jsdelivr.net/npm/highs@1.8.0/build/${file}` });
+                    isSolverReady.value = true;
+                }
+            } catch (e) { console.error(e); }
+        });
+
+        const initData = () => {
+            const today = new Date();
+            const newShips = [];
+            const d1 = new Date(today); d1.setDate(today.getDate()+2); 
+            const a1 = new Date(d1); a1.setDate(d1.getDate()+5);
+            newShips.push({ id: 'S1', name: 'Vessel 1 (Express)', type: 'Premium', baseCost: 600000, etd: fmtDate(d1), eta: fmtDate(a1), containers: [] });
+            const d2 = new Date(today); d2.setDate(today.getDate()+9);
+            const a2 = new Date(d2); a2.setDate(d2.getDate()+12);
+            newShips.push({ id: 'S2', name: 'Vessel 2 (Normal)', type: 'Standard', baseCost: 300000, etd: fmtDate(d2), eta: fmtDate(a2), containers: [] });
+            const d3 = new Date(today); d3.setDate(today.getDate()+16);
+            const a3 = new Date(d3); a3.setDate(d3.getDate()+30);
+            newShips.push({ id: 'S3', name: 'Vessel 3 (Slow)', type: 'Economy', baseCost: 150000, etd: fmtDate(d3), eta: fmtDate(a3), containers: [] });
+            shipments.value = newShips;
+
+            const newOrders = [];
+            let idCounter = 1;
+            const total = settings.orderCount;
+            const c1 = Math.max(1, Math.floor(total * 0.11)); 
+            const c2 = Math.max(1, Math.floor(total * 0.44)); 
+            const c3 = Math.max(1, Math.floor(total * 0.18)); 
+            const c4 = Math.max(0, total - c1 - c2 - c3);
+
+            for(let i=0; i<c1; i++) newOrders.push(createOrder(idCounter++, "Emergency Spare Parts", 3.0, 500, 10000000, 0.05, addDaysSafe(a1, 0)));
+            for(let i=0; i<c2; i++) newOrders.push(createOrder(idCounter++, "Custom Product", 6.0, 800, 1000000, 0.04, addDaysSafe(a1, 2+Math.floor(Math.random()*3))));
+            for(let i=0; i<c3; i++) newOrders.push(createOrder(idCounter++, "Mass-produced Product", 6.0, 800, 2000000, 0.03, addDaysSafe(a2, -2+Math.floor(Math.random()*3))));
+            for(let i=0; i<c4; i++) newOrders.push(createOrder(idCounter++, "Reprocessed Product", 6.0, 8000, 50000, 0.02, addDaysSafe(a3, -5+Math.floor(Math.random()*5))));
+            orders.value = newOrders;
+            selectedIds.value = [];
+            snapshots.strict = {}; snapshots.profit = {};
+        };
+
+        const addDaysSafe = (baseDate, days) => {
+            const res = new Date(baseDate); 
+            if(isNaN(res.getTime())) return new Date(); 
+            res.setDate(res.getDate() + days);
+            return res;
+        };
+        const createOrder = (id, name, baseCbm, baseWgt, baseVal, decay, deadlineDate) => {
+            const variance = 0.85 + (Math.random() * 0.3);
+            return {
+                id: `PO-${String(id).padStart(3, '0')}`,
+                product: name, 
+                cbm: Math.round(baseCbm * variance * 10) / 10, 
+                weight: Math.round(baseWgt * variance), 
+                value: Math.round(baseVal * variance), 
+                decayRate: decay,
+                deadline: deadlineDate.toISOString().split('T')[0], 
+                assignedTo: null
+            };
+        };
+        const fmtDate = (d) => d.toISOString().split('T')[0];
+
+        const runOptimization = async () => {
+            if (!highsInstance) return;
+            isSolving.value = true;
+            await new Promise(r => setTimeout(r, 100));
+
+            try {
+                const O = orders.value; const S = shipments.value; const mode = currentMode.value;
+                const LP_CAP_CBM = 55; const UNASSIGNED_COST = 1e8; 
+                const MAX_DELAY_PROFIT = settings.allowedDelay; 
+
+                let lp = "Minimize\n obj: "; let objTerms = [];
+                S.forEach((s, j) => objTerms.push(`${Math.round(s.baseCost)} y${j}`));
+                O.forEach((o, i) => {
+                    objTerms.push(`${UNASSIGNED_COST} u${i}`);
+                    S.forEach((s, j) => {
+                        let valid = true; let penalty = 0;
+                        if (s.eta > o.deadline) {
+                            if (mode === 'strict') valid = false;
+                            else {
+                                const days = diffDays(o, s);
+                                if (days > MAX_DELAY_PROFIT) valid = false;
+                                else penalty = days * (o.value * o.decayRate);
+                            }
+                        }
+                        if (valid) objTerms.push(`+ ${Math.round(penalty)} x_${i}_${j}`);
+                    });
+                });
+                lp += objTerms.join(" ") + "\nSubject To\n";
+                let cCount = 0;
+                O.forEach((o, i) => {
+                    let terms = [`u${i}`];
+                    S.forEach((s, j) => {
+                        let valid = true;
+                        if (s.eta > o.deadline) { if (mode === 'strict') valid = false; else if (diffDays(o, s) > MAX_DELAY_PROFIT) valid = false; }
+                        if (valid) terms.push(`x_${i}_${j}`);
+                    });
+                    lp += ` c${cCount++}: ${terms.join(" + ")} = 1\n`;
+                });
+                S.forEach((s, j) => {
+                    let terms = [];
+                    O.forEach((o, i) => {
+                        let valid = true;
+                        if (s.eta > o.deadline) { if (mode === 'strict') valid = false; else if (diffDays(o, s) > MAX_DELAY_PROFIT) valid = false; }
+                        if (valid) terms.push(`${Math.floor(o.cbm)} x_${i}_${j}`);
+                    });
+                    if (terms.length > 0) lp += ` c${cCount++}: ${terms.join(" + ")} - ${LP_CAP_CBM} y${j} <= 0\n`;
+                });
+                lp += "Bounds\n"; S.forEach((s, j) => lp += ` 0 <= y${j} <= 50\n`);
+                lp += "Binary\n";
+                O.forEach((o, i) => { lp += ` u${i}\n`; S.forEach((s, j) => {
+                    let valid = true;
+                    if (s.eta > o.deadline) { if (mode === 'strict') valid = false; else if (diffDays(o, s) > MAX_DELAY_PROFIT) valid = false; }
+                    if (valid) lp += ` x_${i}_${j}\n`;
+                });});
+                lp += "Generals\n"; S.forEach((s, j) => lp += ` y${j}\n`);
+                lp += "End\n";
+
+                const options = { time_limit: 5.0, mip_rel_gap: 0.05, presolve: 'on', threads: 1 };
+                const res = highsInstance.solve(lp, options);
+                
+                if (res.Status === 'Optimal' || res.Status === 'Time Limit' || res.Status === 'Reached Time Limit') {
+                    if(!res.Columns) throw new Error("No solution found within time limit");
+                    O.forEach(o => o.assignedTo = null);
+                    S.forEach(s => s.containers = []);
+                    for (const [k, v] of Object.entries(res.Columns)) {
+                        const val = (typeof v === 'object' && v?.Primal!==undefined) ? v.Primal : v;
+                        if (val > 0.5 && k.startsWith('x_')) {
+                            const parts = k.split('_'); 
+                            if(O[parseInt(parts[1])] && S[parseInt(parts[2])]) O[parseInt(parts[1])].assignedTo = S[parseInt(parts[2])].id;
+                        }
+                    }
+                    runBinPacking();
+                    saveSnapshot(mode);
+                    selectedIds.value = []; 
+                    currentView.value = 'ships'; 
+                } else {
+                    alert("Optimal solution not found. Please relax the constraints.");
+                }
+            } catch(e) { 
+                console.error(e); 
+                alert("A calculation error occurred."); 
+            } finally { 
+                isSolving.value = false; 
+            }
+        };
+
+        const runBinPacking = () => {
+            const MAX_CBM = 67; const MAX_WGT = 26000;
+            shipments.value.forEach(ship => {
+                ship.containers = [];
+                const assigned = orders.value.filter(o => o.assignedTo === ship.id);
+                assigned.sort((a,b) => b.weight - a.weight);
+                assigned.forEach(o => {
+                    let fitted = false;
+                    for (let c of ship.containers) {
+                        if (c.loadCbm + o.cbm <= MAX_CBM && c.loadWeight + o.weight <= MAX_WGT) {
+                            c.orders.push(o); c.loadCbm += o.cbm; c.loadWeight += o.weight; fitted = true; break;
+                        }
+                    }
+                    if (!fitted) ship.containers.push({ cost: ship.baseCost, loadCbm: o.cbm, loadWeight: o.weight, maxCbm: MAX_CBM, maxWeight: MAX_WGT, orders: [o] });
+                });
+            });
+        };
+
+        const saveSnapshot = (mode) => {
+            const map = {}; orders.value.forEach(o => { if(o.assignedTo) map[o.id] = o.assignedTo; }); snapshots[mode] = map;
+        };
+        const restoreSnapshot = (mode) => {
+            const map = snapshots[mode];
+            orders.value.forEach(o => o.assignedTo = null); shipments.value.forEach(s => s.containers = []);
+            if (map) orders.value.forEach(o => { if(map[o.id]) o.assignedTo = map[o.id]; });
+            runBinPacking();
+        };
+        watch(currentMode, (n, o) => { saveSnapshot(o); restoreSnapshot(n); });
+
+        const openAssignModal = (o) => { selectedOrder.value = o; isBatchMode.value = false; showModal.value = true; };
+        const openBatchModal = () => { isBatchMode.value = true; showModal.value = true; };
+        const closeModal = () => { showModal.value = false; selectedOrder.value = null; };
+        
+        const manualAssign = (ship) => {
+            if (isBatchMode.value) {
+                selectedIds.value.forEach(id => {
+                    const order = orders.value.find(o => o.id === id);
+                    if (order) order.assignedTo = ship.id;
+                });
+                selectedIds.value = []; 
+            } else {
+                if(selectedOrder.value) selectedOrder.value.assignedTo = ship.id;
+            }
+            runBinPacking();
+            saveSnapshot(currentMode.value);
+            closeModal();
+        };
+        
+        const unassign = (oid, sid) => {
+            const o = orders.value.find(x => x.id === oid);
+            if(o) { o.assignedTo = null; runBinPacking(); saveSnapshot(currentMode.value); }
+        };
+        const resetData = () => { initData(); };
+
+        const totalShippingCost = computed(() => shipments.value.reduce((s, ship) => s + ship.containers.reduce((c, cont) => c + cont.cost, 0), 0));
+        const totalLoss = computed(() => shipments.value.reduce((acc, s) => acc + s.containers.reduce((cSum, c) => cSum + c.orders.reduce((oSum, o)=>oSum+calcLoss(o,s),0), 0), 0));
+        const economicValue = computed(() => {
+            let gross = 0; shipments.value.forEach(s => s.containers.forEach(c => c.orders.forEach(o => gross += o.value)));
+            return gross - totalShippingCost.value - totalLoss.value;
+        });
+
+        const isLate = (o, s) => s && s.eta > o.deadline;
+        const diffDays = (o, s) => {
+            if (!s || !s.eta || !o.deadline) return 0;
+            const d1 = new Date(s.eta); const d2 = new Date(o.deadline);
+            if (isNaN(d1) || isNaN(d2)) return 0; return Math.max(0, Math.ceil((d1 - d2) / 86400000));
+        };
+        const calcLoss = (o, s) => isLate(o, s) ? Math.round(diffDays(o, s) * (o.value * o.decayRate)) : 0;
+        const formatDate = (s) => s ? s.substring(5).replace('-', '/') : '';
+        const formatWeight = (w) => (w/1000).toFixed(1) + 't';
+        const formatCompact = (n) => n.toLocaleString();
+        const formatCbm = (n) => n.toFixed(1);
+
+        const toggleSelection = (id) => {
+            if (selectedIds.value.includes(id)) {
+                selectedIds.value = selectedIds.value.filter(x => x !== id);
+            } else {
+                selectedIds.value.push(id);
+            }
+        };
+
+        return {
+            currentView, currentMode, isSolverReady, isSolving, showModal, selectedOrder, showSettings,
+            orders, shipments, unassignedOrders, economicValue, totalLoss, totalShippingCost, settings,
+            selectedIds, isBatchMode, isAllSelected, toggleAll,
+            initData, resetData, runOptimization, 
+            openAssignModal, openBatchModal, closeModal, manualAssign, unassign, toggleSelection,
+            formatDate, formatWeight, formatCompact, formatCbm, isLate, diffDays, calcLoss
+        };
+    }
+}).mount('#app');
+</script>
+</body>
 </html>
